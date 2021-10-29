@@ -3,20 +3,21 @@ import numpy as np
 from random import randint
 
 # SIMULATION
-POPULATION_SIZE = 100
-NUM_GENERATIONS = 200
-LIFE = 80
-NUM_TRIES = 50
+POPULATION_SIZE = 200
+NUM_GENERATIONS = 1000
+STEPS = 80
+CLEANING_SESSIONS = 100
 MATRIX_LEN = 10
+PERCENTAGE_CANS = 0.2
 
 # DNA
 MUTATION = 800
 NUM_GENES = 243
 
 # POINTS
-REWARD = 8
+REWARD = 10
 PICKUP_PENALTY = 1
-CRASH_PENALTY = 4
+WALL_PENALTY = 5
 
 def base3_to_base10(base3_str):
     strlen = len(base3_str)
@@ -94,12 +95,12 @@ class Robot(object):
     def simulate(self):
         scores = []
 
-        for i in range(0, NUM_TRIES):
+        for i in range(0, CLEANING_SESSIONS):
             trialfitness = 0
             matrix = Environment()
-            self.position = {'y': 0, 'x': 0}
+            self.position = {'x': 0, 'y': 0}
 
-            for step in range(0, LIFE):
+            for step in range(0, STEPS):
                 state = matrix.getState(**self.position)
                 gene = self.dna.get_gene(state)
                 trialfitness = self.moves[gene](matrix, trialfitness)
@@ -111,30 +112,30 @@ class Robot(object):
 
     def up(self, matrix, fitness):
         if self.position['y'] == 0:
-            fitness -= CRASH_PENALTY
+            fitness -= WALL_PENALTY
         else:
             self.position['y'] -= 1
         return fitness
 
     def right(self, matrix, fitness):
-        y, x = matrix.getSize()
+        x, y = matrix.getSize()
         if self.position['x'] == x-1:
-            fitness -= CRASH_PENALTY
+            fitness -= WALL_PENALTY
         else:
             self.position['x'] += 1
         return fitness
 
     def left(self, matrix, fitness):
         if self.position['x'] == 0:
-            fitness -= CRASH_PENALTY
+            fitness -= WALL_PENALTY
         else:
             self.position['x'] -= 1
         return fitness
         
     def down(self, matrix, fitness):
-        y, x = matrix.getSize()
+        x, y = matrix.getSize()
         if self.position['y'] == y-1:
-            fitness -= CRASH_PENALTY
+            fitness -= WALL_PENALTY
         else:
             self.position['y'] += 1
         return fitness
@@ -159,8 +160,6 @@ class Environment(object):
         self.matrix = np.rint(np.random.rand(MATRIX_LEN, MATRIX_LEN)).astype(np.int64)
 
     def getState(self, x, y):
-
-        
         state = [
             str(self.position_state(x, y-1)),
             str(self.position_state(x+1, y)),
@@ -188,15 +187,16 @@ class Environment(object):
         else:
             return False
 
-# def get_relative_probabilities(population):
-#     popfitness = [r.getFitness() for r in population]
-#     minfitness = min(popfitness)
-#     maxfitness = max(popfitness)
-#     # normalized = list(
-#     #     map(lambda x: normalize(x, minfitness, maxfitness), popfitness)
-#     # )
-#     total = sum(popfitness)
-#     return list(map(lambda x: x/total, normalized))
+def normalize(x, minf, maxf):
+    return (x - minf) / (maxf - minf)
+
+def father_probability(population):
+    popfitness = [robot.getFitness() for robot in population]
+    minfitness = min(popfitness)
+    maxfitness = max(popfitness)
+    normalized = list(map(lambda x: normalize(x, minfitness, maxfitness), popfitness))
+    total = sum(normalized)
+    return list(map(lambda x: x/total, normalized))
 
 def choose_parents(population):
     p1, p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
@@ -204,14 +204,14 @@ def choose_parents(population):
         p1,p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
     return population[p1], population[p2]
 
-def evolve():
+def execution():
 
     population = np.array([Robot() for i in range(0, POPULATION_SIZE)])
 
     for gen in range(0, NUM_GENERATIONS):
 
-        for individual in population:
-            individual.simulate()
+        for robot in population:
+            robot.simulate()
 
         gbest = max([robot.getFitness() for robot in population])
 
@@ -219,29 +219,26 @@ def evolve():
         new_population = list()
 
         while len(new_population) < POPULATION_SIZE:
-            # p1, p2 = np.random.choice(population, size=2, p=get_relative_probabilities(population))
-            p1, p2 = choose_parents(population)
+            p1, p2 = np.random.choice(population, size=2, p=father_probability(population))
+            # p1, p2 = choose_parents(population)
             new1, new2 = p1.generateSons(p2)
             new_population.append(new1)
             new_population.append(new2)
 
         population = new_population
 
-    populationFitness = calculateFitness(population)
-    return populationFitness, gbest
+    fittestRobot = getFittest(population)
+    return fittestRobot, gbest
 
-def calculateFitness(population):
+def getFittest(population):
     fittest = None
-    for individual in population:
+    for robot in population:
         if fittest is None:
-            fittest = individual
+            fittest = robot
         else:
-            if fittest.getFitness() < individual.getFitness():
-                fittest = individual
+            if fittest.getFitness() < robot.getFitness():
+                fittest = robot
     return fittest
-
-# def normalize(x, minf, maxf):
-#     return (x - minf) / (maxf - minf)
 
 if __name__=='__main__':
 
@@ -252,22 +249,25 @@ if __name__=='__main__':
 
     for i in range(10):
         initial_time = time.time()
-        populationFitness, gbest = evolve()
+        fittestRobot, gbest = execution()
         total_time = time.time() - initial_time
         mean_time += total_time
 
         if gbest > best:
             best = gbest
-            best_robot = populationFitness
+            best_robot = fittestRobot
         if gbest < worst:
             worst = gbest
-            worst_robot = populationFitness
+            worst_robot = fittestRobot
         
         all_results += gbest
 
+        print("L: {}".format(STEPS))
+
         f = open("results.txt", "a")
-        f.write(f'Execution ${i}---------------------------------------\n')
+        f.write(f'Execução ${i}---------------------------------------\n')
         f.write(f'Melhor: {best}\n\n')
+        f.write(f'Melhor robô: {fittestRobot.getDNA().get_sequence()}\n\n')
         f.write(f'Pior: {worst}\n\n')
         f.write(f'Tempo: {total_time}\n\n')
         f.close()
@@ -275,9 +275,10 @@ if __name__=='__main__':
     f = open("results.txt", "a")
     f.write(f'FINAL ---------------------------------------\n')
     f.write(f'Melhor: {best}\n\n')
+    f.write(f'Melhor: {best_robot.getDNA().get_sequence()}\n\n')
     f.write(f'Pior: {worst}\n\n')
     f.write(f'Media: {all_results/10}\n\n')
     f.write(f'Tempo Médio: {mean_time/10}\n\n')
     f.close()
 
-    print(''.join([str(int(x)) for x in populationFitness.getDNA().get_sequence()]))
+    print(''.join([str(int(x)) for x in fittestRobot.getDNA().get_sequence()]))
