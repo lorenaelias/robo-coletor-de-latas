@@ -1,159 +1,283 @@
-import random
+import time
 import numpy as np
-import matplotlib.pyplot as plt
-from itertools import permutations
+from random import randint
 
-class CanPickerRobot:
+# SIMULATION
+POPULATION_SIZE = 100
+NUM_GENERATIONS = 200
+LIFE = 80
+NUM_TRIES = 50
+MATRIX_LEN = 10
 
-    population = []
-    matrix = []
-    cities = []
+# DNA
+MUTATION = 800
+NUM_GENES = 243
 
-    def __init__(self, matrixSize, populationSize, numGenerations, mutProb, crossProb, cellTrashProbab):
-        
-        self.matrixSize = matrixSize
-        self.populationSize = populationSize
-        self.numGenerations = numGenerations
-        self.mutationProb = mutProb
-        self.crossoverProb = crossProb
-        self.cellTrashProbab = cellTrashProbab
+# POINTS
+REWARD = 8
+PICKUP_PENALTY = 1
+CRASH_PENALTY = 4
 
-        self.createMatrixWithCan()
+def base3_to_base10(base3_str):
+    strlen = len(base3_str)
+    base10_int = 0
+    for index, value in enumerate(base3_str):
+        base10_int += int(value) * 3**(strlen-1-index)
+    return base10_int
 
-        # Cria a população inicial
-        # for i in range(populationSize):
-        #     self.population.append( self.createElement() ) 
-
-    # Função que cria a malha nxn incluindo as latas
-    def createMatrixWithCan(self):
-        canPositioningPossibilities = ['o','x']
-        self.matrix = np.random.choice(canPositioningPossibilities, size=(self.matrixSize, self.matrixSize), p=(1-self.cellTrashProbab, self.cellTrashProbab))
-        self.matrix[:,[0,self.matrixSize-1]] = 'w'
-        self.matrix[[0,self.matrixSize-1], :] = 'w'
-        self.show_matrix(self.matrix)
+class DNA(object):
     
-    # Função que mostra a malha
-    def show_matrix(self, element):
-        print(element)
+    def __init__(self, sequence=None):
+        if sequence is None:
+            self.sequence = np.random.randint(0, 7, NUM_GENES)
+        else:
+            self.sequence = [self.mutate(x) for x in sequence]
 
-    # Função de crossover pmx
-    def pmx_cx(self, p1, p2):
+    def get_sequence(self):
+        return self.sequence
 
-        a = random.randint(0,self.matrixSize-2)
-        b = random.randint(a+1,self.matrixSize-1)
+    def get_gene(self, position):
+        return self.sequence[position]
 
-        f1, f2 = [0]*self.matrixSize, [0]*self.matrixSize
+    def crossover(self, dna_p2):
 
-        for i in range(len(p1)):
-            f1[i] = p1[i]
-        for i in range(len(p2)):
-            f2[i] = p2[i]
+        new1 = [0]*NUM_GENES
+        new2 = [0]*NUM_GENES
 
-        numCities = len(f1)
-        idx1 = [0] * numCities
-        idx2 = [0] * numCities
+        a = randint(0, NUM_GENES-1)
 
-        for i, x in enumerate(f1):
-            idx1[x] = i
-        for i, x in enumerate(f2):
-            idx2[x] = i
+        for i in range(0, a):
+            new2[i] = self.sequence[i]
+            new1[i] = dna_p2.sequence[i]
 
-        for i in range(a, b+1) :
-            f1[i], f2[i] = f2[i], f1[i]
+        for i in range(a, NUM_GENES):
+            new1[i] = dna_p2.sequence[i]
+            new2[i] = self.sequence[i]
 
-        irange = list(range(0,a)) + list(range(b+1, numCities))
+        return DNA(new1), DNA(new2)
 
-        for i in irange:
-            x = f1[i]
-            while idx2[x] >=a and idx2[x] <= b :
-                x = f2[idx2[x]]
-            f1[i] = x
+    def mutate(self, gene):
+        if np.random.randint(1, MUTATION) == 1:
+            return (np.random.randint(0, 7))
+        else: 
+            return gene
+class Robot(object):
 
-            x = f2[i]
-            while idx1[x] >= a and idx1[x] <= b:
-                x = f1[idx1[x]]
-            f2[i] = x
+    def __init__(self, dna=None):
+        if dna == None:
+            self.dna = DNA()
+        else:
+            self.dna = dna
 
-        return f1, f2
+        self.fitness = 0
+        self.position = {'y': 0, 'x': 0}
+        self.moves = {
+            0: self.up,
+            1: self.right,
+            2: self.left,
+            3: self.down,
+            4: self.random,
+            5: self.no_move,
+            6: self.pick_can
+        }
 
-    def handle_conversion(self):
-        occ = self.population.count(self.population[0])
-        if (occ/self.populationSize >= 0.90):
+    def getDNA(self):
+        return self.dna
+
+    def getFitness(self):
+        return self.fitness
+    
+    def generateSons(self, p2):
+        dna1, dna2 = self.dna.crossover(p2.getDNA())
+        return Robot(dna1), Robot(dna2)
+
+    def simulate(self):
+        scores = []
+
+        for i in range(0, NUM_TRIES):
+            trialfitness = 0
+            matrix = Environment()
+            self.position = {'y': 0, 'x': 0}
+
+            for step in range(0, LIFE):
+                state = matrix.getState(**self.position)
+                gene = self.dna.get_gene(state)
+                trialfitness = self.moves[gene](matrix, trialfitness)
+
+            scores.append(trialfitness)
+
+        self.fitness = np.array(scores).mean()
+        print("Robot Fitness {}".format(self.fitness))
+
+    def up(self, matrix, fitness):
+        if self.position['y'] == 0:
+            fitness -= CRASH_PENALTY
+        else:
+            self.position['y'] -= 1
+        return fitness
+
+    def right(self, matrix, fitness):
+        y, x = matrix.getSize()
+        if self.position['x'] == x-1:
+            fitness -= CRASH_PENALTY
+        else:
+            self.position['x'] += 1
+        return fitness
+
+    def left(self, matrix, fitness):
+        if self.position['x'] == 0:
+            fitness -= CRASH_PENALTY
+        else:
+            self.position['x'] -= 1
+        return fitness
+        
+    def down(self, matrix, fitness):
+        y, x = matrix.getSize()
+        if self.position['y'] == y-1:
+            fitness -= CRASH_PENALTY
+        else:
+            self.position['y'] += 1
+        return fitness
+
+    def random(self, matrix, fitness):
+        moves = np.random.choice([self.up, self.right, self.left, self.down])
+        return moves(matrix, fitness)
+
+    def no_move(self, matrix, fitness):
+        return fitness
+
+    def pick_can(self, matrix, fitness):
+        if matrix.removeCan(**self.position):
+            fitness += REWARD
+        else:
+            fitness -= PICKUP_PENALTY
+        return fitness
+
+class Environment(object):
+    
+    def __init__(self):
+        self.matrix = np.rint(np.random.rand(MATRIX_LEN, MATRIX_LEN)).astype(np.int64)
+
+    def getState(self, x, y):
+
+        
+        state = [
+            str(self.position_state(x, y-1)),
+            str(self.position_state(x+1, y)),
+            str(self.position_state(x-1, y)),
+            str(self.position_state(x, y+1)),
+            str(self.position_state(x, y))
+        ]
+        return base3_to_base10(''.join(state))
+    
+    def getSize(self):
+        return self.matrix.shape
+
+    def position_state(self, x, y):
+        try:
+            if x < 0 or y < 0:
+                raise Exception
+            return self.matrix[x, y]
+        except:
+            return 2
+
+    def removeCan(self, x, y):
+        if self.matrix[x, y]:
+            self.matrix[x, y] = 0
             return True
         else:
             return False
 
-    # Função principal do programa
-    def main(self, iteration):
-        f = open("results.txt","a")
-        f.write(f'Execução {iteration}:\n')
-        self.simulate()
-        self.show_matrix(self.population[0])
-        f.write(f'Melhor = {self.evaluateElement(self.population[0])}\n')
-        f.write(f'Pior = {self.evaluateElement(self.population[self.populationSize-1])}\n')
-        f.write(f'Media = {self.calculateMean()}\n')
-        f.write("\n")
-        f.close()
+# def get_relative_probabilities(population):
+#     popfitness = [r.getFitness() for r in population]
+#     minfitness = min(popfitness)
+#     maxfitness = max(popfitness)
+#     # normalized = list(
+#     #     map(lambda x: normalize(x, minfitness, maxfitness), popfitness)
+#     # )
+#     total = sum(popfitness)
+#     return list(map(lambda x: x/total, normalized))
+
+def choose_parents(population):
+    p1, p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
+    while(p1 == p2):
+        p1,p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
+    return population[p1], population[p2]
+
+def evolve():
+
+    population = np.array([Robot() for i in range(0, POPULATION_SIZE)])
+
+    for gen in range(0, NUM_GENERATIONS):
+
+        for individual in population:
+            individual.simulate()
+
+        gbest = max([robot.getFitness() for robot in population])
+
+        print("Generation {}: {}".format(gen, gbest))
+        new_population = list()
+
+        while len(new_population) < POPULATION_SIZE:
+            # p1, p2 = np.random.choice(population, size=2, p=get_relative_probabilities(population))
+            p1, p2 = choose_parents(population)
+            new1, new2 = p1.generateSons(p2)
+            new_population.append(new1)
+            new_population.append(new2)
+
+        population = new_population
+
+    populationFitness = calculateFitness(population)
+    return populationFitness, gbest
+
+def calculateFitness(population):
+    fittest = None
+    for individual in population:
+        if fittest is None:
+            fittest = individual
+        else:
+            if fittest.getFitness() < individual.getFitness():
+                fittest = individual
+    return fittest
+
+# def normalize(x, minf, maxf):
+#     return (x - minf) / (maxf - minf)
+
+if __name__=='__main__':
+
+    mean_time = 0
+    worst = 100000
+    best = -100000
+    all_results = 0
+
+    for i in range(10):
+        initial_time = time.time()
+        populationFitness, gbest = evolve()
+        total_time = time.time() - initial_time
+        mean_time += total_time
+
+        if gbest > best:
+            best = gbest
+            best_robot = populationFitness
+        if gbest < worst:
+            worst = gbest
+            worst_robot = populationFitness
         
-    def calculateMean(self):
-        s = 0.0
-        for i in self.population:
-            s+=self.evaluateElement(i)
-        return s/self.populationSize
+        all_results += gbest
 
-    # Função da roleta que escolhe os pais para a reprodução
-    def roullete(self):
-        p1, p2 = random.randint(0,self.populationSize-1),random.randint(0,self.populationSize-1)
-        while(p1 == p2):
-            p1,p2 = random.randint(0,self.populationSize-1),random.randint(0,self.populationSize-1)
-        return self.population[p1],self.population[p2]
+        f = open("results.txt", "a")
+        f.write(f'Execution ${i}---------------------------------------\n')
+        f.write(f'Melhor: {best}\n\n')
+        f.write(f'Pior: {worst}\n\n')
+        f.write(f'Tempo: {total_time}\n\n')
+        f.close()
 
-    # Função de mutação
-    def mutate(self,elem):
+    f = open("results.txt", "a")
+    f.write(f'FINAL ---------------------------------------\n')
+    f.write(f'Melhor: {best}\n\n')
+    f.write(f'Pior: {worst}\n\n')
+    f.write(f'Media: {all_results/10}\n\n')
+    f.write(f'Tempo Médio: {mean_time/10}\n\n')
+    f.close()
 
-        x = random.uniform(0, 1)
-            
-        if(x<=self.mutationProb):
-            a = random.randint(0,self.matrixSize-1)
-            b = random.randint(0,self.matrixSize-1)
-
-            while(a==b):
-                b = random.randint(0,self.matrixSize-1)
-                
-            aux = elem[a]
-            elem[a] = elem[b]
-            elem[b] = aux
-
-    # Simula a evolução, ou seja, o passar das gerações com a evolução da população
-    def simulate(self):
-
-        for gen  in range(self.numGenerations):
-            print(f'Generation {gen}:\n')
-            childreen = []
-            
-            for j in range(int((self.crossoverProb*self.populationSize)/2)):
-                p1,p2 = self.roullete()
-                f1,f2 = self.pmx_cx(p1, p2)(p1, p2)
-                
-                self.mutate(f1)
-                self.mutate(f2)
-
-                childreen.append(f1)
-                childreen.append(f2)
-            
-            for f in childreen:
-                self.population.append(f)
-            
-            self.population.sort(key=self.evaluateElement)
-
-            while(len(self.population)>self.populationSize):
-                self.population.pop()
-            
-            if(self.handle_conversion()):
-                break
-
-# params: matrixSize, populationSize, numGenerations, mutProb, crossProb, cellTrashProb
-canPickerRobot = CanPickerRobot(8, 150, 500, 0.1, 0.8, 0.2)
-
-# for i in range(10):
-#     canPickerRobot.main(i)
+    print(''.join([str(int(x)) for x in populationFitness.getDNA().get_sequence()]))
