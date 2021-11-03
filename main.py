@@ -3,21 +3,21 @@ import numpy as np
 from random import randint
 
 # SIMULATION
-POPULATION_SIZE = 200
-NUM_GENERATIONS = 1000
+POPULATION_SIZE = 100
+NUM_GENERATIONS = 500
 STEPS = 80
-CLEANING_SESSIONS = 100
+CLEANING_SESSIONS = 50
 MATRIX_LEN = 10
 PERCENTAGE_CANS = 0.2
 
 # DNA
-MUTATION = 800
+MUTATION = 0.05
 NUM_GENES = 243
 
 # POINTS
 REWARD = 10
 PICKUP_PENALTY = 1
-WALL_PENALTY = 5
+WALL_PENALTY = 2
 
 def base3_to_base10(base3_str):
     strlen = len(base3_str)
@@ -49,29 +49,33 @@ class DNA(object):
 
         for i in range(0, a):
             new2[i] = self.sequence[i]
-            new1[i] = dna_p2.sequence[i]
+            new1[i] = dna_p2.get_sequence()[i]
 
         for i in range(a, NUM_GENES):
-            new1[i] = dna_p2.sequence[i]
+            new1[i] = dna_p2.get_sequence()[i]
             new2[i] = self.sequence[i]
 
         return DNA(new1), DNA(new2)
 
     def mutate(self, gene):
-        if np.random.randint(1, MUTATION) == 1:
+        if np.random.random() < MUTATION:
             return (np.random.randint(0, 7))
         else: 
             return gene
 class Robot(object):
 
     def __init__(self, dna=None):
+        
+        self.num_cans = 0
+        self.max_cans = 0
+
         if dna == None:
             self.dna = DNA()
         else:
             self.dna = dna
 
         self.fitness = 0
-        self.position = {'y': 0, 'x': 0}
+        self.position = {'x': 0, 'y': 0}
         self.moves = {
             0: self.up,
             1: self.right,
@@ -87,6 +91,9 @@ class Robot(object):
 
     def getFitness(self):
         return self.fitness
+
+    def getMaxCans(self):
+        return self.max_cans
     
     def generateSons(self, p2):
         dna1, dna2 = self.dna.crossover(p2.getDNA())
@@ -98,6 +105,7 @@ class Robot(object):
         for i in range(0, CLEANING_SESSIONS):
             trialfitness = 0
             matrix = Environment()
+            self.num_cans = 0
             self.position = {'x': 0, 'y': 0}
 
             for step in range(0, STEPS):
@@ -107,8 +115,10 @@ class Robot(object):
 
             scores.append(trialfitness)
 
+            if self.num_cans > self.max_cans:
+                self.max_cans = self.num_cans
+
         self.fitness = np.array(scores).mean()
-        print("Robot Fitness {}".format(self.fitness))
 
     def up(self, matrix, fitness):
         if self.position['y'] == 0:
@@ -150,14 +160,15 @@ class Robot(object):
     def pick_can(self, matrix, fitness):
         if matrix.removeCan(**self.position):
             fitness += REWARD
+            self.num_cans += 1
+
         else:
             fitness -= PICKUP_PENALTY
         return fitness
-
 class Environment(object):
     
     def __init__(self):
-        self.matrix = np.rint(np.random.rand(MATRIX_LEN, MATRIX_LEN)).astype(np.int64)
+        self.matrix = np.random.choice([0,1], size=(MATRIX_LEN, MATRIX_LEN), p=(1-PERCENTAGE_CANS, PERCENTAGE_CANS))
 
     def getState(self, x, y):
         state = [
@@ -198,12 +209,6 @@ def father_probability(population):
     total = sum(normalized)
     return list(map(lambda x: x/total, normalized))
 
-def choose_parents(population):
-    p1, p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
-    while(p1 == p2):
-        p1,p2 = randint(0,POPULATION_SIZE-1), randint(0,POPULATION_SIZE-1)
-    return population[p1], population[p2]
-
 def execution():
 
     population = np.array([Robot() for i in range(0, POPULATION_SIZE)])
@@ -214,19 +219,19 @@ def execution():
             robot.simulate()
 
         gbest = max([robot.getFitness() for robot in population])
+        fittestRobot = getFittest(population)
+        print("Fittest Robot: cans = {} : {}".format(fittestRobot.getMaxCans(), fittestRobot.getFitness()))
 
         print("Generation {}: {}".format(gen, gbest))
         new_population = list()
 
         while len(new_population) < POPULATION_SIZE:
             p1, p2 = np.random.choice(population, size=2, p=father_probability(population))
-            # p1, p2 = choose_parents(population)
             new1, new2 = p1.generateSons(p2)
             new_population.append(new1)
             new_population.append(new2)
 
         population = new_population
-
     fittestRobot = getFittest(population)
     return fittestRobot, gbest
 
@@ -262,9 +267,7 @@ if __name__=='__main__':
         
         all_results += gbest
 
-        print("L: {}".format(STEPS))
-
-        f = open("results.txt", "a")
+        f = open("results2.txt", "a")
         f.write(f'Execução ${i}---------------------------------------\n')
         f.write(f'Melhor: {best}\n\n')
         f.write(f'Melhor robô: {fittestRobot.getDNA().get_sequence()}\n\n')
@@ -272,7 +275,7 @@ if __name__=='__main__':
         f.write(f'Tempo: {total_time}\n\n')
         f.close()
 
-    f = open("results.txt", "a")
+    f = open("results2.txt", "a")
     f.write(f'FINAL ---------------------------------------\n')
     f.write(f'Melhor: {best}\n\n')
     f.write(f'Melhor: {best_robot.getDNA().get_sequence()}\n\n')
